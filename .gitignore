@@ -1,0 +1,78 @@
+# ============================================
+# Disaster Change Captioning Project
+# ============================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# ---------- Virtual Environments ----------
+tf_gpu_env/
+venv/
+env/
+.venv/
+
+# ---------- IDE ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# ---------- Jupyter ----------
+.ipynb_checkpoints/
+*.ipynb_meta
+
+# ---------- Model Outputs & Checkpoints ----------
+outputs/
+checkpoints/
+runs/
+logs/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.ckpt
+
+# ---------- Dataset (large files, download separately) ----------
+dataset/
+data/raw/
+data/processed/
+*.h5
+*.hdf5
+*.tar.gz
+*.zip
+
+# ---------- Generated Captions ----------
+data/captions/*.json
+!data/captions/.gitkeep
+
+# ---------- Evaluation Results ----------
+results/
+*.csv
+!configs/*.csv
+
+# ---------- Hugging Face Cache ----------
+.cache/
+*.lock
+
+# ---------- OS Files ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Misc ----------
+*.log
+*.tmp
+wandb/
+mlruns/

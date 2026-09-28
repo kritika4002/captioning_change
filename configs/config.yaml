@@ -1,0 +1,90 @@
+# ============================================
+# Configuration — Disaster Change Captioning
+# ============================================
+
+project:
+  name: "disaster-change-captioning"
+  seed: 42
+  device: "cuda"  # "cuda" or "cpu"
+
+# ---------- Dataset ----------
+data:
+  root_dir: "./dataset"
+  captions_dir: "./data/captions"
+  image_size: 224
+  max_caption_length: 128
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 4
+  # Disaster events to include (null = all)
+  include_events: null
+  # Disaster events to exclude
+  exclude_events: []
+
+# ---------- Model ----------
+model:
+  # Vision Encoder
+  vision_encoder:
+    name: "openai/clip-vit-base-patch16"
+    freeze: true
+    hidden_size: 768
+
+  # Change Detection Module
+  change_detector:
+    hidden_size: 512
+    num_heads: 8
+    num_layers: 2
+    dropout: 0.1
+
+  # Language Decoder
+  decoder:
+    name: "gpt2"
+    freeze_base: true
+    max_length: 128
+
+  # LoRA Configuration (PEFT)
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: ["c_attn", "c_proj"]
+    bias: "none"
+    task_type: "CAUSAL_LM"
+
+# ---------- Custom Loss (SSAL) ----------
+loss:
+  # Structural-Semantic Alignment Loss weights
+  lambda_ce: 1.0           # Cross-Entropy weight
+  lambda_structural: 0.3   # Structural Damage Consistency weight
+  lambda_temporal: 0.2     # Temporal Coherence Penalty weight
+  # Damage severity embedding dimension
+  damage_embed_dim: 128
+  # Label smoothing for CE
+  label_smoothing: 0.1
+
+# ---------- Training ----------
+training:
+  epochs: 30
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  warmup_steps: 500
+  max_grad_norm: 1.0
+  scheduler: "cosine"       # "cosine" or "linear"
+  fp16: true
+  save_every: 5             # Save checkpoint every N epochs
+  eval_every: 1             # Evaluate every N epochs
+  early_stopping_patience: 7
+  output_dir: "./outputs"
+  checkpoint_dir: "./checkpoints"
+  log_dir: "./logs"
+
+# ---------- Evaluation ----------
+evaluation:
+  metrics: ["bleu", "meteor", "rouge_l", "cider"]
+  beam_size: 5
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
