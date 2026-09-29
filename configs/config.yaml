@@ -10,13 +10,13 @@ project:
 # ---------- Dataset ----------
 data:
   root_dir: "./dataset"
-  captions_dir: "./data/captions"
+  captions_cache: "./data/captions/all_captions.json"
   image_size: 224
   max_caption_length: 128
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-  num_workers: 4
+  num_workers: 0
   # Disaster events to include (null = all)
   include_events: null
   # Disaster events to exclude
@@ -65,18 +65,18 @@ loss:
 
 # ---------- Training ----------
 training:
-  epochs: 30
+  epochs: 5
   batch_size: 8
   gradient_accumulation_steps: 4
   learning_rate: 2.0e-4
   weight_decay: 0.01
-  warmup_steps: 500
+  warmup_steps: 20
   max_grad_norm: 1.0
   scheduler: "cosine"       # "cosine" or "linear"
   fp16: true
-  save_every: 5             # Save checkpoint every N epochs
+  save_every: 1             # Save checkpoint every N epochs
   eval_every: 1             # Evaluate every N epochs
-  early_stopping_patience: 7
+  early_stopping_patience: 5
   output_dir: "./outputs"
   checkpoint_dir: "./checkpoints"
   log_dir: "./logs"

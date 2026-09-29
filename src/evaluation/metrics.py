@@ -1,292 +1,130 @@
-"""
-Caption Evaluation Metrics — BLEU, METEOR, ROUGE-L, CIDEr.
+import math
+from collections import defaultdict, Counter
 
-Implements standard NLP metrics for evaluating generated captions
-against ground-truth references.  These are the metrics reported
-in the project's comparative analysis.
-"""
-
-import logging
-from typing import Dict, List, Optional
-from collections import defaultdict
-
-logger = logging.getLogger(__name__)
-
-# Lazy imports — these packages may not always be installed
 _nltk_available = False
 _rouge_available = False
 
 try:
     import nltk
-    from nltk.translate.bleu_score import (
-        corpus_bleu,
-        sentence_bleu,
-        SmoothingFunction,
-    )
+    from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
     from nltk.translate.meteor_score import meteor_score as nltk_meteor
     _nltk_available = True
 except ImportError:
-    logger.warning("nltk not installed — BLEU and METEOR unavailable")
+    pass
 
 try:
     from rouge_score import rouge_scorer
     _rouge_available = True
 except ImportError:
-    logger.warning("rouge-score not installed — ROUGE-L unavailable")
+    pass
 
 
 def _ensure_nltk_data():
-    """Download required NLTK data if not present."""
     if not _nltk_available:
         return
     for resource in ["wordnet", "punkt", "punkt_tab", "omw-1.4"]:
         try:
-            nltk.data.find(f"corpora/{resource}" if "wordnet" in resource or "omw" in resource else f"tokenizers/{resource}")
+            sub = "corpora" if ("wordnet" in resource or "omw" in resource) else "tokenizers"
+            nltk.data.find(f"{sub}/{resource}")
         except LookupError:
             nltk.download(resource, quiet=True)
 
 
 class CaptionEvaluator:
-    """
-    Evaluates generated captions against ground-truth references.
-
-    Supports:
-        - BLEU-1/2/3/4 (with smoothing)
-        - METEOR
-        - ROUGE-L (F1)
-        - CIDEr (simplified TF-IDF based)
-
-    Usage:
-        evaluator = CaptionEvaluator()
-        results = evaluator.evaluate(predictions, references)
-        print(results)
-    """
-
-    def __init__(self, metrics: Optional[List[str]] = None):
-        """
-        Args:
-            metrics: List of metrics to compute.
-                     Default: ["bleu", "meteor", "rouge_l"]
-        """
-        if metrics is None:
-            metrics = ["bleu", "meteor", "rouge_l"]
-
-        self.metrics = [m.lower() for m in metrics]
+    def __init__(self, metrics=None):
+        self.metrics = [m.lower() for m in (metrics or ["bleu", "meteor", "rouge_l"])]
         _ensure_nltk_data()
 
-        # ROUGE scorer (reusable)
+        self.rouge = None
         if "rouge_l" in self.metrics and _rouge_available:
-            self.rouge = rouge_scorer.RougeScorer(
-                ["rougeL"], use_stemmer=True
-            )
-        else:
-            self.rouge = None
+            self.rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
 
-    def evaluate(
-        self,
-        predictions: List[str],
-        references: List[str],
-    ) -> Dict[str, float]:
-        """
-        Compute all configured metrics.
+    def evaluate(self, preds, refs):
+        if len(preds) != len(refs):
+            raise ValueError(f"mismatch: {len(preds)} preds vs {len(refs)} refs")
 
-        Args:
-            predictions: List of generated caption strings.
-            references:  List of ground-truth caption strings.
-
-        Returns:
-            Dictionary of metric_name → score.
-        """
-        assert len(predictions) == len(references), (
-            f"Mismatch: {len(predictions)} predictions vs "
-            f"{len(references)} references"
-        )
-
-        results = {}
-
+        res = {}
         if "bleu" in self.metrics:
-            bleu_scores = self._compute_bleu(predictions, references)
-            results.update(bleu_scores)
-
+            res.update(self._compute_bleu(preds, refs))
         if "meteor" in self.metrics:
-            results["meteor"] = self._compute_meteor(
-                predictions, references
-            )
-
+            res["meteor"] = self._compute_meteor(preds, refs)
         if "rouge_l" in self.metrics:
-            results["rouge_l"] = self._compute_rouge_l(
-                predictions, references
-            )
-
+            res["rouge_l"] = self._compute_rouge_l(preds, refs)
         if "cider" in self.metrics:
-            results["cider"] = self._compute_cider(
-                predictions, references
-            )
+            res["cider"] = self._compute_cider(preds, refs)
+        return res
 
-        return results
+    def evaluate_single(self, pred, ref):
+        return self.evaluate([pred], [ref])
 
-    def evaluate_single(
-        self, prediction: str, reference: str
-    ) -> Dict[str, float]:
-        """Evaluate a single prediction-reference pair."""
-        return self.evaluate([prediction], [reference])
-
-    # ──────────────────────────────────────────
-    # BLEU
-    # ──────────────────────────────────────────
-
-    def _compute_bleu(
-        self, predictions: List[str], references: List[str]
-    ) -> Dict[str, float]:
-        """Compute BLEU-1 through BLEU-4 with smoothing."""
+    def _compute_bleu(self, preds, refs):
         if not _nltk_available:
             return {f"bleu_{i}": 0.0 for i in range(1, 5)}
 
         smoothie = SmoothingFunction().method1
+        hyps = [p.lower().split() for p in preds]
+        targets = [[r.lower().split()] for r in refs]
 
-        # Tokenise
-        hyps = [pred.lower().split() for pred in predictions]
-        refs = [[ref.lower().split()] for ref in references]  # list of list
-
-        results = {}
+        scores = {}
         for n in range(1, 5):
-            weights = tuple(
-                1.0 / n if i < n else 0.0 for i in range(4)
-            )
+            weights = tuple(1.0 / n if i < n else 0.0 for i in range(4))
             try:
-                score = corpus_bleu(
-                    refs, hyps,
-                    weights=weights,
-                    smoothing_function=smoothie,
-                )
+                s = corpus_bleu(targets, hyps, weights=weights, smoothing_function=smoothie)
             except Exception:
-                score = 0.0
-            results[f"bleu_{n}"] = round(score, 4)
+                s = 0.0
+            scores[f"bleu_{n}"] = round(s, 4)
+        return scores
 
-        return results
-
-    # ──────────────────────────────────────────
-    # METEOR
-    # ──────────────────────────────────────────
-
-    def _compute_meteor(
-        self, predictions: List[str], references: List[str]
-    ) -> float:
-        """Compute average METEOR score."""
+    def _compute_meteor(self, preds, refs):
         if not _nltk_available:
             return 0.0
-
         scores = []
-        for pred, ref in zip(predictions, references):
+        for p, r in zip(preds, refs):
             try:
-                score = nltk_meteor(
-                    [ref.lower().split()],
-                    pred.lower().split(),
-                )
-                scores.append(score)
+                s = nltk_meteor([r.lower().split()], p.lower().split())
+                scores.append(s)
             except Exception:
                 scores.append(0.0)
-
         return round(sum(scores) / max(len(scores), 1), 4)
 
-    # ──────────────────────────────────────────
-    # ROUGE-L
-    # ──────────────────────────────────────────
-
-    def _compute_rouge_l(
-        self, predictions: List[str], references: List[str]
-    ) -> float:
-        """Compute average ROUGE-L F1 score."""
+    def _compute_rouge_l(self, preds, refs):
         if not _rouge_available or self.rouge is None:
             return 0.0
-
-        scores = []
-        for pred, ref in zip(predictions, references):
-            result = self.rouge.score(ref, pred)
-            scores.append(result["rougeL"].fmeasure)
-
+        scores = [self.rouge.score(r, p)["rougeL"].fmeasure for p, r in zip(preds, refs)]
         return round(sum(scores) / max(len(scores), 1), 4)
 
-    # ──────────────────────────────────────────
-    # CIDEr (simplified)
-    # ──────────────────────────────────────────
+    def _compute_cider(self, preds, refs):
+        def ngrams(tokens, n):
+            return [tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)]
 
-    def _compute_cider(
-        self, predictions: List[str], references: List[str]
-    ) -> float:
-        """
-        Simplified CIDEr score using TF-IDF n-gram matching.
-
-        This is a lightweight approximation. For the full CIDEr-D metric,
-        use pycocoevalcap.
-        """
-        import math
-        from collections import Counter
-
-        def get_ngrams(tokens, n):
-            return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]
-
-        # Document frequencies
         df = defaultdict(int)
-        num_docs = len(references)
-
+        n_docs = len(refs)
         ref_ngrams_list = []
-        for ref in references:
-            tokens = ref.lower().split()
-            ngrams_set = set()
+
+        for r in refs:
+            toks = r.lower().split()
+            seen = set()
             for n in range(1, 5):
-                ngrams_set.update(get_ngrams(tokens, n))
-            ref_ngrams_list.append(Counter(
-                ng for n in range(1, 5) for ng in get_ngrams(tokens, n)
-            ))
-            for ng in ngrams_set:
+                seen.update(ngrams(toks, n))
+            ref_ngrams_list.append(Counter(ng for n in range(1, 5) for ng in ngrams(toks, n)))
+            for ng in seen:
                 df[ng] += 1
 
-        # Compute IDF
-        idf = {
-            ng: math.log(num_docs / (count + 1.0))
-            for ng, count in df.items()
-        }
-
+        idf = {ng: math.log(n_docs / (cnt + 1.0)) for ng, cnt in df.items()}
         scores = []
-        for pred, ref_ngrams in zip(predictions, ref_ngrams_list):
-            tokens = pred.lower().split()
-            pred_ngrams = Counter(
-                ng for n in range(1, 5) for ng in get_ngrams(tokens, n)
-            )
 
-            # TF-IDF vectors
-            common = set(pred_ngrams.keys()) & set(ref_ngrams.keys())
+        for p, ref_counts in zip(preds, ref_ngrams_list):
+            toks = p.lower().split()
+            p_counts = Counter(ng for n in range(1, 5) for ng in ngrams(toks, n))
+            common = set(p_counts.keys()) & set(ref_counts.keys())
             if not common:
                 scores.append(0.0)
                 continue
 
-            numerator = sum(
-                pred_ngrams[ng] * ref_ngrams[ng] * idf.get(ng, 0) ** 2
-                for ng in common
-            )
-            pred_norm = math.sqrt(sum(
-                (pred_ngrams[ng] * idf.get(ng, 0)) ** 2
-                for ng in pred_ngrams
-            ))
-            ref_norm = math.sqrt(sum(
-                (ref_ngrams[ng] * idf.get(ng, 0)) ** 2
-                for ng in ref_ngrams
-            ))
+            num = sum(p_counts[ng] * ref_counts[ng] * (idf.get(ng, 0) ** 2) for ng in common)
+            p_norm = math.sqrt(sum((p_counts[ng] * idf.get(ng, 0)) ** 2 for ng in p_counts))
+            r_norm = math.sqrt(sum((ref_counts[ng] * idf.get(ng, 0)) ** 2 for ng in ref_counts))
 
-            if pred_norm * ref_norm > 0:
-                scores.append(numerator / (pred_norm * ref_norm))
-            else:
-                scores.append(0.0)
+            scores.append(num / (p_norm * r_norm) if p_norm * r_norm > 0 else 0.0)
 
         return round(sum(scores) / max(len(scores), 1), 4)
-
-    def format_results(self, results: Dict[str, float]) -> str:
-        """Pretty-print evaluation results."""
-        lines = ["┌─────────────────────────────────┐"]
-        lines.append("│    Caption Evaluation Results    │")
-        lines.append("├────────────────┬────────────────┤")
-        for metric, score in sorted(results.items()):
-            lines.append(f"│ {metric:<14} │ {score:>14.4f} │")
-        lines.append("└────────────────┴────────────────┘")
-        return "\n".join(lines)
