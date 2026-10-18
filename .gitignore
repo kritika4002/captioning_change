@@ -1,8 +1,6 @@
-# ============================================
-# Disaster Change Captioning Project
-# ============================================
 
-# ---------- Python ----------
+
+# ---------- Python Runtime & Bytecode ----------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -13,13 +11,16 @@ dist/
 build/
 .eggs/
 
-# ---------- Virtual Environments ----------
+# ---------- Virtual Environments & Package Managers ----------
 tf_gpu_env/
 venv/
 env/
 .venv/
+ENV/
+env.bak/
+venv.bak/
 
-# ---------- IDE ----------
+# ---------- IDEs & Editors ----------
 .vscode/
 .idea/
 *.swp
@@ -27,24 +28,25 @@ env/
 *~
 .project
 .pydevproject
+.settings/
 
-# ---------- Jupyter ----------
+# ---------- Jupyter Notebooks ----------
 .ipynb_checkpoints/
 *.ipynb_meta
 
-# ---------- Model Outputs & Checkpoints ----------
-outputs/
+# ---------- PyTorch & Model Checkpoints ----------
 checkpoints/
-runs/
-logs/
 *.pt
 *.pth
 *.bin
 *.safetensors
 *.onnx
 *.ckpt
+runs/
+logs/
+*.log
 
-# ---------- Dataset (large files, download separately) ----------
+# ---------- Large Datasets (Download / generate separately) ----------
 dataset/
 data/raw/
 data/processed/
@@ -52,27 +54,37 @@ data/processed/
 *.hdf5
 *.tar.gz
 *.zip
+*.7z
 
-# ---------- Generated Captions ----------
+# ---------- Intermediate Captions Cache ----------
 data/captions/*.json
 !data/captions/.gitkeep
 
-# ---------- Evaluation Results ----------
-results/
-*.csv
-!configs/*.csv
+# ---------- Temporary Outputs & Predictions ----------
+outputs/checkpoints/
+outputs/evaluation/*.xlsx
+outputs/predictions/*.png
+!outputs/predictions/.gitkeep
+!outputs/paper/
 
-# ---------- Hugging Face Cache ----------
+# ---------- Scratch & Testing Dirs ----------
+scratch/
+.tempmediaStorage/
+.user_uploaded/
+.system_generated/
+*.tmp
+
+# ---------- Hugging Face & Streamlit Caches ----------
 .cache/
+.streamlit/
 *.lock
 
-# ---------- OS Files ----------
+# ---------- Operating System Specific ----------
 .DS_Store
 Thumbs.db
 desktop.ini
+$RECYCLE.BIN/
 
-# ---------- Misc ----------
-*.log
-*.tmp
+# ---------- Experiment Tracking ----------
 wandb/
 mlruns/

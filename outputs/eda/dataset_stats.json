@@ -1,0 +1,174 @@
+{
+  "total_events": 19,
+  "total_samples": 11034,
+  "events": {
+    "guatemala-volcano": 28,
+    "hurricane-florence": 546,
+    "hurricane-harvey": 522,
+    "hurricane-matthew": 405,
+    "hurricane-michael": 550,
+    "joplin-tornado": 149,
+    "lower-puna-volcano": 291,
+    "mexico-earthquake": 193,
+    "midwest-flooding": 445,
+    "moore-tornado": 227,
+    "nepal-flooding": 619,
+    "palu-tsunami": 196,
+    "pinery-bushfire": 1845,
+    "portugal-wildfire": 1869,
+    "santa-rosa-wildfire": 377,
+    "socal-fire": 1403,
+    "sunda-tsunami": 148,
+    "tuscaloosa-tornado": 343,
+    "woolsey-fire": 878
+  },
+  "global_damage": {
+    "no-damage": 313033,
+    "minor-damage": 36860,
+    "destroyed": 31560,
+    "major-damage": 29904,
+    "un-classified": 14011
+  },
+  "per_event_damage": {
+    "guatemala-volcano": {
+      "no-damage": 731,
+      "minor-damage": 26,
+      "destroyed": 33,
+      "major-damage": 23,
+      "un-classified": 178
+    },
+    "hurricane-florence": {
+      "no-damage": 8466,
+      "minor-damage": 232,
+      "un-classified": 820,
+      "major-damage": 1949,
+      "destroyed": 81
+    },
+    "hurricane-harvey": {
+      "major-damage": 13378,
+      "minor-damage": 4510,
+      "no-damage": 18638,
+      "un-classified": 581,
+      "destroyed": 848
+    },
+    "hurricane-matthew": {
+      "minor-damage": 12331,
+      "no-damage": 4058,
+      "major-damage": 2717,
+      "destroyed": 3524,
+      "un-classified": 1334
+    },
+    "hurricane-michael": {
+      "no-damage": 22692,
+      "minor-damage": 8292,
+      "un-classified": 373,
+      "major-damage": 2919,
+      "destroyed": 1225
+    },
+    "joplin-tornado": {
+      "destroyed": 3274,
+      "minor-damage": 2192,
+      "major-damage": 1005,
+      "un-classified": 656,
+      "no-damage": 8225
+    },
+    "lower-puna-volcano": {
+      "un-classified": 554,
+      "no-damage": 2277,
+      "minor-damage": 49,
+      "destroyed": 504,
+      "major-damage": 26
+    },
+    "mexico-earthquake": {
+      "no-damage": 51084,
+      "minor-damage": 221,
+      "un-classified": 111,
+      "major-damage": 54,
+      "destroyed": 3
+    },
+    "midwest-flooding": {
+      "destroyed": 165,
+      "no-damage": 12819,
+      "un-classified": 473,
+      "major-damage": 193,
+      "minor-damage": 246
+    },
+    "moore-tornado": {
+      "no-damage": 19453,
+      "un-classified": 586,
+      "destroyed": 1584,
+      "minor-damage": 886,
+      "major-damage": 449
+    },
+    "nepal-flooding": {
+      "no-damage": 31225,
+      "un-classified": 1683,
+      "minor-damage": 5134,
+      "major-damage": 4721,
+      "destroyed": 502
+    },
+    "palu-tsunami": {
+      "no-damage": 46796,
+      "destroyed": 7203,
+      "major-damage": 1178,
+      "un-classified": 611,
+      "minor-damage": 1
+    },
+    "pinery-bushfire": {
+      "un-classified": 524,
+      "no-damage": 5027,
+      "major-damage": 99,
+      "destroyed": 229,
+      "minor-damage": 82
+    },
+    "portugal-wildfire": {
+      "no-damage": 20787,
+      "un-classified": 1064,
+      "destroyed": 1090,
+      "minor-damage": 176,
+      "major-damage": 296
+    },
+    "santa-rosa-wildfire": {
+      "no-damage": 15843,
+      "destroyed": 5810,
+      "un-classified": 86,
+      "major-damage": 95,
+      "minor-damage": 121
+    },
+    "socal-fire": {
+      "no-damage": 15697,
+      "un-classified": 693,
+      "destroyed": 2333,
+      "minor-damage": 136,
+      "major-damage": 110
+    },
+    "sunda-tsunami": {
+      "no-damage": 14078,
+      "un-classified": 2590,
+      "destroyed": 179,
+      "major-damage": 100
+    },
+    "tuscaloosa-tornado": {
+      "no-damage": 10499,
+      "un-classified": 908,
+      "minor-damage": 2036,
+      "destroyed": 1097,
+      "major-damage": 466
+    },
+    "woolsey-fire": {
+      "destroyed": 1876,
+      "minor-damage": 189,
+      "no-damage": 4638,
+      "major-damage": 126,
+      "un-classified": 186
+    }
+  },
+  "disaster_types": {
+    "volcano": 319,
+    "flooding": 2132,
+    "wind": 1674,
+    "earthquake": 193,
+    "tsunami": 344,
+    "fire": 6372
+  }
+}

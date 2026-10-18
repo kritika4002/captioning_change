@@ -1,13 +1,4 @@
-"""
-Prepare Captions — Generate and cache change captions for the entire
-xBD dataset using the CaptionGenerator.
 
-This pre-computes all captions so the training DataLoader doesn't need
-to parse JSON labels on-the-fly every epoch.
-
-Usage:
-    python scripts/prepare_captions.py --data-root ./dataset --output ./data/captions/all_captions.json
-"""
 
 import json
 import sys

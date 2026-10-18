@@ -1,16 +1,4 @@
-"""
-Dataset Statistics & Exploratory Data Analysis (EDA)
 
-Generates comprehensive statistics and visualisations for the xBD dataset
-to be used in the review presentation.
-
-Outputs:
-  - Console summary with total counts
-  - Bar charts of damage distribution per event
-  - Pie chart of overall damage breakdown
-  - Event-wise sample count table
-  - Saves all figures to outputs/eda/
-"""
 
 import json
 import sys

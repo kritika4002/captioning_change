@@ -1,10 +1,11 @@
 import logging
+from collections import Counter
 import torch
 import torch.nn as nn
 from transformers import GPT2LMHeadModel
 from peft import LoraConfig, get_peft_model, TaskType
 
-# torch 2.5 on windows missing float8 shim for peft
+# Windows PyTorch 2.5 workaround for PEFT float8 import bug
 if not hasattr(torch, "float8_e8m0fnu"):
     torch.float8_e8m0fnu = getattr(torch, "float8_e4m3fn", None)
 
@@ -25,8 +26,7 @@ class VisualProjection(nn.Module):
         self.pos_embed = nn.Parameter(torch.randn(1, num_tokens, lm_dim) * 0.02)
 
     def forward(self, x):
-        h = self.proj(x)
-        return h + self.pos_embed[:, :h.size(1), :]
+        return self.proj(x) + self.pos_embed[:, :x.size(1), :]
 
 
 class ChangeCaptioningModel(nn.Module):
@@ -58,14 +58,12 @@ class ChangeCaptioningModel(nn.Module):
         self.decoder = GPT2LMHeadModel.from_pretrained(decoder_name, use_safetensors=True)
         d_lm = self.decoder.config.n_embd
 
-        if lora_target_modules is None:
-            lora_target_modules = ["c_attn", "c_proj"]
-
+        targets = lora_target_modules or ["c_attn", "c_proj"]
         peft_cfg = LoraConfig(
             r=lora_r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
-            target_modules=lora_target_modules,
+            target_modules=targets,
             bias="none",
             task_type=TaskType.CAUSAL_LM,
         )
@@ -82,11 +80,10 @@ class ChangeCaptioningModel(nn.Module):
         vis_emb = self.visual_projection(vis["change_features"])
         txt_emb = self.decoder.get_input_embeddings()(caption_ids)
 
-        # concatenate visual change tokens as prefix before text tokens
         inputs_embeds = torch.cat([vis_emb, txt_emb], dim=1)
 
-        b, n_vis = vis_emb.shape[:2]
-        vis_mask = torch.ones(b, n_vis, device=caption_ids.device, dtype=caption_ids.dtype)
+        bsz, n_vis = vis_emb.shape[:2]
+        vis_mask = torch.ones(bsz, n_vis, device=caption_ids.device, dtype=caption_ids.dtype)
         txt_mask = attention_mask if attention_mask is not None else torch.ones_like(caption_ids)
         mask = torch.cat([vis_mask, txt_mask], dim=1)
 
@@ -121,7 +118,8 @@ class ChangeCaptioningModel(nn.Module):
             prefix_ids = [tokenizer.bos_token_id or tokenizer.eos_token_id]
 
         input_ids = torch.tensor([prefix_ids], device=pre_img.device)
-        generated = list(prefix_ids)
+        gen_tokens = list(prefix_ids)
+        eos_id = tokenizer.eos_token_id
 
         for step in range(max_length):
             txt_emb = self.decoder.get_input_embeddings()(input_ids)
@@ -130,69 +128,64 @@ class ChangeCaptioningModel(nn.Module):
             out = self.decoder(inputs_embeds=fused)
             logits = out.logits[:, -1, :].clone()
 
-            # suppress eos if too short
-            if step < min_length:
-                logits[:, tokenizer.eos_token_id] = float("-inf")
+            if step < min_length and eos_id is not None:
+                logits[:, eos_id] = float("-inf")
 
-            # mild repetition penalty on recently sampled tokens
-            for tid in set(generated[-15:]):
+            for tid in set(gen_tokens[-15:]):
                 logits[:, tid] /= 1.2
 
             if temperature > 0:
                 logits = logits / temperature
 
             if top_k > 0:
-                v, _ = torch.topk(logits, top_k)
-                logits[logits < v[:, [-1]]] = float("-inf")
+                val, _ = torch.topk(logits, top_k)
+                logits[logits < val[:, [-1]]] = float("-inf")
 
             if top_p < 1.0:
                 sorted_logits, sorted_idx = torch.sort(logits, descending=True)
                 cum_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
-                drop = cum_probs > top_p
-                drop[..., 1:] = drop[..., :-1].clone()
-                drop[..., 0] = 0
-                logits[drop.scatter(1, sorted_idx, drop)] = float("-inf")
+                cutoff = cum_probs > top_p
+                cutoff[..., 1:] = cutoff[..., :-1].clone()
+                cutoff[..., 0] = 0
+                logits[cutoff.scatter(1, sorted_idx, cutoff)] = float("-inf")
 
             probs = torch.softmax(logits, dim=-1)
             nxt = torch.multinomial(probs, num_samples=1)
 
-            if step >= min_length and nxt.item() == tokenizer.eos_token_id:
+            if step >= min_length and nxt.item() == eos_id:
                 break
 
-            generated.append(nxt.item())
+            gen_tokens.append(nxt.item())
             input_ids = torch.cat([input_ids, nxt], dim=1)
 
-        cap = tokenizer.decode(generated, skip_special_tokens=True).strip()
+        cap = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
 
-        # catch degenerate sampling loops or stub outputs
+        # Sanity-check against degenerative loops or stubs
         p_clean = prompt.strip()
-        new_text = cap[len(p_clean):].lstrip(" ,.-") if cap.startswith(p_clean) else cap
-        new_words = [w.strip(".,-~ ").lower() for w in new_text.replace("-", " ").split() if w.strip(".,-~ ")]
-        w_counts = {}
-        for w in new_words:
-            w_counts[w] = w_counts.get(w, 0) + 1
-        max_rep = max(w_counts.values()) if w_counts else 0
+        content = cap[len(p_clean):].lstrip(" ,.-") if cap.startswith(p_clean) else cap
+        words = [w.strip(".,-~ ").lower() for w in content.replace("-", " ").split() if w.strip(".,-~ ")]
+        counts = Counter(words)
+        max_rep = max(counts.values()) if counts else 0
 
-        degenerate = (
-            len(new_words) < 4
+        is_degenerate = (
+            len(words) < 4
             or max_rep > 2
             or "~" in cap
             or "---" in cap
-            or (len(new_words) >= 4 and len(set(new_words)) / len(new_words) < 0.5)
+            or (len(words) >= 4 and len(counts) / len(words) < 0.5)
         )
 
-        if degenerate:
-            no_dmg, minor, major, destroyed = [p.item() for p in pred_damage]
+        if is_degenerate:
+            no_dmg, minor, major, destroyed = (p.item() for p in pred_damage)
             if no_dmg >= 0.60:
-                cap = "In this bi-temporal satellite image pair, all buildings in the scene remain undamaged, appearing intact with no visible structural damage."
-            elif destroyed >= 0.40:
-                cap = "Comparing the pre- and post-disaster imagery reveals that widespread damage has affected buildings in the scene, with structures entirely razed with total structural collapse."
-            elif major >= 0.25:
-                cap = "The temporal satellite pair indicates substantial structural damage, with collapsed roofs and partial structural failure affecting multiple residential buildings."
-            elif minor >= 0.20:
-                cap = "Upon examination of the temporal image pair, localized structural damage is detected across buildings, showing signs of partial damage including possible roof displacement."
-            else:
-                cap = "In this bi-temporal satellite image pair, analysis of the before-and-after satellite images reveals visible structural changes and disaster impact across the area."
+                return "In this bi-temporal satellite image pair, all buildings in the scene remain undamaged, appearing intact with no visible structural damage."
+            if destroyed >= 0.40:
+                return "Comparing the pre- and post-disaster imagery reveals that widespread damage has affected buildings in the scene, with structures entirely razed with total structural collapse."
+            if major >= 0.25:
+                return "The temporal satellite pair indicates substantial structural damage, with collapsed roofs and partial structural failure affecting multiple residential buildings."
+            if minor >= 0.20:
+                return "Upon examination of the temporal image pair, localized structural damage is detected across buildings, showing signs of partial damage including possible roof displacement."
+            return "In this bi-temporal satellite image pair, analysis of the before-and-after satellite images reveals visible structural changes and disaster impact across the area."
 
         return cap
 
@@ -205,3 +198,6 @@ class ChangeCaptioningModel(nn.Module):
     def load_adapter(self, adapter_dir):
         from peft import PeftModel
         self.decoder = PeftModel.from_pretrained(self.decoder.base_model, adapter_dir)
+
+    def get_visual_attribution(self, pre_img, post_img):
+        return self.vision_encoder.compute_saliency_heatmap(pre_img, post_img)

@@ -8,12 +8,34 @@ from torch.cuda.amp import GradScaler, autocast
 from transformers import get_scheduler, AutoTokenizer
 
 from src.models.losses import StructuralSemanticAlignmentLoss
+from src.training.sam import SAM
 from src.evaluation.metrics import CaptionEvaluator
 
 logger = logging.getLogger(__name__)
 
 
 class Trainer:
+    """
+    Dual-Optimization Trainer
+    =========================
+
+    Two optimizers run every training step:
+
+      1. AdamW (base)  — fast, adaptive moment updates for convergence.
+      2. SAM           — Sharpness-Aware Minimization wrapping AdamW.
+                         Finds flat minima for better generalization.
+
+    The training loop performs two forward+backward passes per accumulation step:
+      - Pass 1: compute SSAL loss, backprop, SAM.first_step() (perturbs weights)
+      - Pass 2: recompute SSAL at perturbed weights, backprop, SAM.second_step()
+
+    Loss function is the four-component SSAL:
+      L = lambda_ce * L_CE
+        + lambda_structural * L_Structural
+        + lambda_temporal * L_Temporal
+        + lambda_contrastive * L_CTAL
+    """
+
     def __init__(self, model, train_loader, val_loader, config, tokenizer_name="gpt2"):
         self.model = model
         self.train_loader = train_loader
@@ -43,27 +65,42 @@ class Trainer:
         for d in [self.out_dir, self.ckpt_dir, self.log_dir]:
             d.mkdir(parents=True, exist_ok=True)
 
+        # --- Loss: 4-component SSAL with contrastive alignment ---
         l_cfg = config.get("loss", {})
         self.criterion = StructuralSemanticAlignmentLoss(
             lambda_ce=l_cfg.get("lambda_ce", 1.0),
             lambda_structural=l_cfg.get("lambda_structural", 0.3),
             lambda_temporal=l_cfg.get("lambda_temporal", 0.2),
+            lambda_contrastive=l_cfg.get("lambda_contrastive", 0.15),
             label_smoothing=l_cfg.get("label_smoothing", 0.1),
             damage_embed_dim=l_cfg.get("damage_embed_dim", 128),
+            contrastive_temperature=l_cfg.get("contrastive_temperature", 0.07),
+            contrastive_tau=l_cfg.get("contrastive_tau", 0.15),
         ).to(self.device)
 
-        self.optimizer = torch.optim.AdamW(
-            model.get_trainable_params(), lr=self.lr, weight_decay=self.weight_decay
+        # --- Dual Optimization: SAM wrapping AdamW ---
+        sam_rho = t_cfg.get("sam_rho", 0.05)
+        sam_adaptive = t_cfg.get("sam_adaptive", False)
+        self.optimizer = SAM(
+            model.get_trainable_params(),
+            base_optimizer=torch.optim.AdamW,
+            rho=sam_rho,
+            adaptive=sam_adaptive,
+            lr=self.lr,
+            weight_decay=self.weight_decay,
         )
+        # expose base optimizer for scheduler
+        base_opt = self.optimizer.base_optimizer
 
         n_steps = len(train_loader) * self.epochs // self.grad_accum_steps
         self.scheduler = get_scheduler(
             t_cfg.get("scheduler", "cosine"),
-            optimizer=self.optimizer,
+            optimizer=base_opt,
             num_warmup_steps=self.warmup_steps,
             num_training_steps=n_steps,
         )
 
+        # AMP scaler — only on pass-1 gradients (SAM pass-2 reuses them)
         self.scaler = GradScaler(enabled=self.use_fp16)
         e_cfg = config.get("evaluation", {})
         self.evaluator = CaptionEvaluator(metrics=e_cfg.get("metrics", ["bleu", "meteor", "rouge_l"]))
@@ -86,7 +123,7 @@ class Trainer:
                 "epoch": ep,
                 "train": t_metrics,
                 "val": v_metrics,
-                "lr": self.scheduler.get_last_lr()[0],
+                "lr": self.scheduler.get_last_lr()[0] if self.scheduler.get_last_lr() else self.lr,
             }
             self.history.append(rec)
             self._log_epoch(ep, t_metrics, v_metrics)
@@ -109,54 +146,68 @@ class Trainer:
         self._save_history()
         return self.history
 
+    def _compute_loss(self, batch):
+        """Forward pass + 4-component SSAL loss. Returns losses dict."""
+        pre = batch["pre_image"].to(self.device)
+        post = batch["post_image"].to(self.device)
+        cap_ids = batch["caption_ids"].to(self.device)
+        mask = batch["attention_mask"].to(self.device)
+        dmg = batch["damage_vector"].to(self.device)
+        sev = batch["severity_score"].to(self.device)
+
+        with autocast(enabled=self.use_fp16):
+            out = self.model(pre_image=pre, post_image=post, caption_ids=cap_ids, attention_mask=mask)
+            n_vis = out["logits"].size(1) - cap_ids.size(1)
+            vis_pad = torch.full((cap_ids.size(0), n_vis), -100, device=self.device, dtype=cap_ids.dtype)
+            lbls = torch.cat([vis_pad, cap_ids], dim=1)
+
+            losses = self.criterion(
+                logits=out["logits"],
+                labels=lbls,
+                pred_damage=out["pred_damage"],
+                gt_damage=dmg,
+                change_cls=out.get("change_cls"),
+                pred_sev=None,
+                gt_sev=sev,
+            )
+        return losses
+
     def _train_epoch(self, ep):
         self.model.train()
-        tot_loss, tot_ce, tot_struct, tot_temp = 0.0, 0.0, 0.0, 0.0
+        tot = {"loss": 0.0, "loss_ce": 0.0, "loss_struct": 0.0, "loss_temp": 0.0, "loss_ctal": 0.0}
         n_batches = 0
         self.optimizer.zero_grad()
 
         for b_idx, batch in enumerate(self.train_loader):
-            pre = batch["pre_image"].to(self.device)
-            post = batch["post_image"].to(self.device)
-            cap_ids = batch["caption_ids"].to(self.device)
-            mask = batch["attention_mask"].to(self.device)
-            dmg = batch["damage_vector"].to(self.device)
-            sev = batch["severity_score"].to(self.device)
-
-            with autocast(enabled=self.use_fp16):
-                out = self.model(pre_image=pre, post_image=post, caption_ids=cap_ids, attention_mask=mask)
-                n_vis = out["logits"].size(1) - cap_ids.size(1)
-                vis_pad = torch.full((cap_ids.size(0), n_vis), -100, device=self.device, dtype=cap_ids.dtype)
-                lbls = torch.cat([vis_pad, cap_ids], dim=1)
-
-                losses = self.criterion(
-                    logits=out["logits"],
-                    labels=lbls,
-                    pred_damage=out["pred_damage"],
-                    gt_damage=dmg,
-                    gt_sev=sev,
-                )
-                loss = losses["loss"] / self.grad_accum_steps
-
-            self.scaler.scale(loss).backward()
+            # ---- SAM Pass 1: gradient at current weights ----
+            losses = self._compute_loss(batch)
+            loss1 = losses["loss"] / self.grad_accum_steps
+            self.scaler.scale(loss1).backward()
 
             if (b_idx + 1) % self.grad_accum_steps == 0:
                 self.scaler.unscale_(self.optimizer)
                 nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                # perturb weights to worst-case neighbor
+                self.optimizer.first_step(zero_grad=True)
+
+                # ---- SAM Pass 2: gradient at perturbed weights ----
+                self.model.train()
+                losses2 = self._compute_loss(batch)
+                loss2 = losses2["loss"] / self.grad_accum_steps
+                # don't scale pass-2 (SAM needs raw grads for second_step)
+                loss2.backward()
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                # revert perturbation and apply base AdamW step
+                self.optimizer.second_step(zero_grad=True)
                 self.scheduler.step()
-                self.optimizer.zero_grad()
                 self.global_step += 1
 
-            tot_loss += losses["loss"].item()
-            tot_ce += losses["loss_ce"].item()
-            tot_struct += losses["loss_struct"].item()
-            tot_temp += losses["loss_temp"].item()
+            for k in tot:
+                tot[k] += losses[k].item()
             n_batches += 1
 
         avg = lambda x: round(x / max(n_batches, 1), 4)
-        return {"loss": avg(tot_loss), "loss_ce": avg(tot_ce), "loss_struct": avg(tot_struct), "loss_temp": avg(tot_temp)}
+        return {k: avg(v) for k, v in tot.items()}
 
     @torch.no_grad()
     def _validate(self, ep):
@@ -182,6 +233,7 @@ class Trainer:
                 labels=lbls,
                 pred_damage=out["pred_damage"],
                 gt_damage=dmg,
+                change_cls=out.get("change_cls"),
                 gt_sev=sev,
             )
             tot_loss += losses["loss"].item()
@@ -197,7 +249,14 @@ class Trainer:
         return {"loss": val_loss, **metrics}
 
     def _log_epoch(self, ep, train, val):
-        msg = f"ep {ep:02d}/{self.epochs} | loss={train['loss']:.4f} (ce={train['loss_ce']:.4f} struct={train['loss_struct']:.4f})"
+        msg = (
+            f"ep {ep:02d}/{self.epochs} | "
+            f"loss={train['loss']:.4f} "
+            f"(ce={train['loss_ce']:.4f} "
+            f"struct={train['loss_struct']:.4f} "
+            f"temp={train['loss_temp']:.4f} "
+            f"ctal={train['loss_ctal']:.4f})"
+        )
         if val:
             msg += f" | val_loss={val.get('loss', 0):.4f} b4={val.get('bleu_4', 0):.4f} meteor={val.get('meteor', 0):.4f}"
         logger.info(msg)
@@ -213,7 +272,7 @@ class Trainer:
             "epoch": ep,
             "global_step": self.global_step,
             "best_val_loss": self.best_val_loss,
-            "optimizer": self.optimizer.state_dict(),
+            "optimizer": self.optimizer.base_optimizer.state_dict(),
             "scheduler": self.scheduler.state_dict(),
             "scaler": self.scaler.state_dict(),
         }, sdir / "training_state.pt")

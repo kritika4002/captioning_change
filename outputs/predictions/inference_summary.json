@@ -1,0 +1,56 @@
+[
+  {
+    "idx": 1,
+    "event": "guatemala-volcano",
+    "sample_id": "guatemala-volcano_00000000",
+    "gt": "In this bi-temporal satellite image pair, all 10 buildings in the scene remain undamaged. Specifically, 10 buildings appears intact with no visible structural damage.",
+    "pred": "In this bi-temporal satellite image pair, analysis of the before-and-after satellite images reveals visible structural changes and disaster impact across the area.",
+    "bleu_1": 0.3735,
+    "bleu_4": 0.2251,
+    "meteor": 0.3221,
+    "rouge_l": 0.4,
+    "ledger": {
+      "total_structures": 10,
+      "severity_score": 0.0,
+      "emergency_priority": "LOW (Minimal Structural Disruption)",
+      "hotspot_sector": "NW"
+    },
+    "path": "outputs\\predictions\\prediction_sample_1.png"
+  },
+  {
+    "idx": 2,
+    "event": "hurricane-florence",
+    "sample_id": "hurricane-florence_00000000",
+    "gt": "Analysis of the before-and-after satellite images indicates that all 110 buildings in the scene remain undamaged. Specifically, 110 buildings are undamaged and maintains its original condition.",
+    "pred": "In this bi-temporal satellite image pair, analysis of the before-and-after satellite images reveals visible structural changes and disaster impact across the area.",
+    "bleu_1": 0.3411,
+    "bleu_4": 0.1963,
+    "meteor": 0.3361,
+    "rouge_l": 0.3396,
+    "ledger": {
+      "total_structures": 110,
+      "severity_score": 0.3,
+      "emergency_priority": "LOW (Minimal Structural Disruption)",
+      "hotspot_sector": "SE"
+    },
+    "path": "outputs\\predictions\\prediction_sample_2.png"
+  },
+  {
+    "idx": 3,
+    "event": "midwest-flooding",
+    "sample_id": "midwest-flooding_00000000",
+    "gt": "In this bi-temporal satellite image pair, widespread damage has affected 5 out of 5 buildings (100.0%), due to severe flooding and water inundation. Specifically, 5 buildings have been entirely razed with total structural collapse.",
+    "pred": "In this bi-temporal satellite image pair, analysis of the before-and-after satellite images reveals visible structural changes and disaster impact across the area.",
+    "bleu_1": 0.2371,
+    "bleu_4": 0.1365,
+    "meteor": 0.2526,
+    "rouge_l": 0.3279,
+    "ledger": {
+      "total_structures": 5,
+      "severity_score": 0.0,
+      "emergency_priority": "LOW (Minimal Structural Disruption)",
+      "hotspot_sector": "NW"
+    },
+    "path": "outputs\\predictions\\prediction_sample_3.png"
+  }
+]

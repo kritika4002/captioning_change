@@ -1,0 +1,6 @@
+Configuration,Cross_Attention,Structural_Loss,Temporal_Loss,PEFT_LoRA,BLEU_4,METEOR,ROUGE_L,CIDEr,Structural_Damage_Accuracy_Pct
+Full Proposed Architecture,Yes,Yes,Yes,Yes,0.298,0.286,0.569,0.914,87.5
+w/o Structural Loss (lambda_struct=0),Yes,No,Yes,Yes,0.241,0.238,0.511,0.782,68.3
+w/o Temporal Penalty (lambda_temp=0),Yes,Yes,No,Yes,0.282,0.274,0.554,0.887,85.1
+w/o Cross-Attention Module (Simple Concat),No,Yes,Yes,Yes,0.215,0.212,0.472,0.71,71.9
+w/o LoRA (Linear Probe Only),Yes,Yes,Yes,No,0.174,0.181,0.423,0.598,64.2

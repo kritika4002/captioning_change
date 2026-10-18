@@ -52,16 +52,20 @@ model:
     bias: "none"
     task_type: "CAUSAL_LM"
 
-# ---------- Custom Loss (SSAL) ----------
+# ---------- Custom Loss (SSAL + CTAL) ----------
 loss:
   # Structural-Semantic Alignment Loss weights
   lambda_ce: 1.0           # Cross-Entropy weight
-  lambda_structural: 0.3   # Structural Damage Consistency weight
+  lambda_structural: 0.3   # Structural Damage Consistency weight (KL divergence)
   lambda_temporal: 0.2     # Temporal Coherence Penalty weight
+  lambda_contrastive: 0.15 # Contrastive Temporal Alignment Loss (CTAL) weight
   # Damage severity embedding dimension
   damage_embed_dim: 128
   # Label smoothing for CE
   label_smoothing: 0.1
+  # CTAL hyperparameters
+  contrastive_temperature: 0.07  # InfoNCE temperature (lower = sharper)
+  contrastive_tau: 0.15          # Severity difference threshold for positive pairs
 
 # ---------- Training ----------
 training:
@@ -80,6 +84,9 @@ training:
   output_dir: "./outputs"
   checkpoint_dir: "./checkpoints"
   log_dir: "./logs"
+  # SAM (Sharpness-Aware Minimization) — second optimizer
+  sam_rho: 0.05             # Perturbation radius for weight-space exploration
+  sam_adaptive: false       # True = ASAM (per-parameter scale); false = standard SAM
 
 # ---------- Evaluation ----------
 evaluation:

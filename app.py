@@ -13,6 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from src.models.change_captioner import ChangeCaptioningModel
 from src.data.dataset import create_data_splits
 from src.data.preprocessing import ImagePreprocessor
+from src.data.damage_overlay import draw_damage_outlines, DAMAGE_COLORS
+from src.data.osm_prior import (
+    OSMBuildingPrior,
+    AutomatedDamageLedger,
+    render_sector_grid,
+    render_saliency_heatmap_overlay,
+    SECTOR_NAMES,
+)
 from src.evaluation.metrics import CaptionEvaluator
 
 st.set_page_config(
@@ -95,6 +103,7 @@ view = st.sidebar.radio(
     "Navigation View",
     [
         "Live Change Captioning",
+        "Tactical Ledger & OSM Priors",
         "Quantitative Evaluation",
         "Study",
         "SSAL Loss",
@@ -106,6 +115,9 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("**Indexed Samples:** `11,034`")
 st.sidebar.markdown("**Disaster Events:** `19`")
 st.sidebar.markdown("**Trainable Params:** `6.79 M (3.29%)`")
+st.sidebar.markdown("**Optimizers:** `SAM + AdamW`")
+st.sidebar.markdown("**Loss:** `CE + Structural + Temporal + CTAL`")
+st.sidebar.markdown("**Explainability:** `Cross-Attn Heatmaps + OSM Priors`")
 
 
 if view.strip() == "Live Change Captioning":
@@ -135,17 +147,24 @@ if view.strip() == "Live Change Captioning":
         cached = cache_dict.get(ckey) or cache_dict.get(sample_id)
         if not cached:
             for k, v in cache_dict.items():
-                if sample_id in k:
+                if k.endswith(f"_{sample_id}"):
                     cached = v
                     break
 
-        st.markdown("---")
-        st.markdown("#### Input Satellite Imagery")
-        i1, i2 = st.columns(2)
-        with i1:
-            st.image(pre_img, caption=f"Pre-Disaster: {ev}", use_container_width=True)
-        with i2:
-            st.image(post_img, caption=f"Post-Disaster: {sample_id}", use_container_width=True)
+        # Pre/Post image display with toggle for showing damage outlines upfront
+        show_raw_outlines = st.checkbox("Show building polygon outlines on preview images", value=False)
+
+        pre_label = sample.get("pre_label")
+        post_label = sample.get("post_label")
+
+        col_pre, col_post = st.columns(2)
+        with col_pre:
+            disp_pre = draw_damage_outlines(pre_img, pre_label if pre_label else post_label) if show_raw_outlines else pre_img
+            st.image(disp_pre, caption=f"Pre-Disaster Image: {ev}", use_container_width=True)
+
+        with col_post:
+            disp_post = draw_damage_outlines(post_img, post_label) if show_raw_outlines else post_img
+            st.image(disp_post, caption=f"Post-Disaster Image: {sample_id}", use_container_width=True)
 
         st.markdown("")
         if st.button("Run Multimodal Change Captioning", type="primary", use_container_width=True):
@@ -158,6 +177,7 @@ if view.strip() == "Live Change Captioning":
                 with torch.no_grad():
                     vis = m.vision_encoder(t_pre, t_post)
                     pred_dmg = vis["pred_damage"].softmax(dim=-1).squeeze(0).cpu().numpy()
+                    sal_map = m.get_visual_attribution(t_pre, t_post)
 
                 latency_ms = (time.perf_counter() - t0) * 1000
 
@@ -244,6 +264,187 @@ if view.strip() == "Live Change Captioning":
                 }, index=dmg_labels)
                 st.bar_chart(chart_df)
 
+            # Damage polygon outlines shown after inference
+            st.markdown("---")
+            st.markdown("#### Damage Polygon Outline View")
+            st.caption(
+                "Building polygons outlined from xBD ground-truth annotations. "
+                "Outlines are color-coded: green = no damage, yellow = minor, orange = major, red = destroyed."
+            )
+            post_outlined = draw_damage_outlines(post_img, post_label)
+            pre_outlined_inf = draw_damage_outlines(pre_img, pre_label if pre_label else post_label)
+
+            st.markdown(
+                """
+                <div style="display:flex;gap:18px;align-items:center;margin-bottom:4px;font-size:13px;">
+                  <span style="color:#00e676;font-weight:600;">&#9632; No Damage</span>
+                  <span style="color:#ffeb3b;font-weight:600;">&#9632; Minor Damage</span>
+                  <span style="color:#ff9800;font-weight:600;">&#9632; Major Damage</span>
+                  <span style="color:#f44336;font-weight:600;">&#9632; Destroyed</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            oi1, oi2 = st.columns(2)
+            with oi1:
+                st.image(pre_outlined_inf, caption=f"Pre-Disaster Outlines: {ev}", use_container_width=True)
+            with oi2:
+                st.image(post_outlined, caption=f"Post-Disaster Damage Outlines: {sample_id}", use_container_width=True)
+
+            # Visual Attention Attribution & OSM Tactical Ledger (Step B Novelty)
+            st.markdown("---")
+            st.markdown("#### Visual Attention Attribution & Tactical Quadrant Triage")
+            st.caption(
+                "Real-World Operational Paradigm: Cross-attention saliency attribution map (Turbo colormap) "
+                "fused with OpenStreetMap (OSM) pre-disaster footprint priors to produce automated quadrant-level triage."
+            )
+
+            sal_fused = render_saliency_heatmap_overlay(post_img, sal_map, alpha=0.48)
+
+            prior_file = pre_label if pre_label else post_label
+            osm_prior = OSMBuildingPrior(prior_file, image_size=post_img.size if post_img else (1024, 1024))
+            ledger_engine = AutomatedDamageLedger(osm_prior)
+            ledger = ledger_engine.assess_damage_from_saliency(sal_map)
+
+            grid_img = render_sector_grid(post_img, ledger.get("sector_breakdown"))
+
+            a1, a2 = st.columns(2)
+            with a1:
+                st.image(
+                    sal_fused,
+                    caption="Visual Attention Attribution Heatmap (Cross-Attention Saliency)",
+                    use_container_width=True,
+                )
+            with a2:
+                st.image(
+                    grid_img,
+                    caption="Tactical Quadrant Grid (NW, NE, SW, SE Emergency Sectors)",
+                    use_container_width=True,
+                )
+
+            st.markdown("##### Operational Disaster Damage Ledger (Automated from OSM Footprints)")
+            l1, l2, l3, l4 = st.columns(4)
+            l1.metric("Structures Assessed", f"{ledger['total_structures']}")
+            l2.metric("Severity Score", f"{ledger['disaster_severity_score']}/10")
+            l3.metric("Emergency Priority", f"{ledger['emergency_priority']}")
+            l4.metric("Hotspot Sector", f"{ledger['hotspot_sector_name']}")
+
+            # Sector breakdown table
+            sec_rows = []
+            for sec_name, stats in ledger["sector_breakdown"].items():
+                sec_rows.append({
+                    "Tactical Quadrant": sec_name,
+                    "Intact Structures": stats["intact"],
+                    "Minor Damage": stats["minor"],
+                    "Major Damage": stats["major"],
+                    "Destroyed": stats["destroyed"],
+                    "Total Structures": stats["total"],
+                })
+            df_sec = pd.DataFrame(sec_rows)
+            st.dataframe(df_sec.set_index("Tactical Quadrant"), use_container_width=True)
+
+            with st.expander("View Structured JSON Dispatch Ledger (FEMA / UN OCHA / ArcGIS Interop)"):
+                st.json({
+                    "disaster_event": ev,
+                    "scene_id": sample_id,
+                    "summary_metrics": {
+                        "total_structures": ledger["total_structures"],
+                        "severity_score": ledger["disaster_severity_score"],
+                        "priority_rating": ledger["emergency_priority"],
+                        "critical_hotspot": ledger["hotspot_sector_name"],
+                    },
+                    "sector_data": ledger["sector_breakdown"],
+                })
+
+
+elif view.strip() == "Tactical Ledger & OSM Priors":
+    st.markdown('<div class="header-title">Tactical Disaster Ledger & OpenStreetMap (OSM) Footprint Priors</div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-sub">Operational emergency management without post-disaster human annotations</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    > **Real-World Operational Paradigm**: In live disaster dispatch (FEMA, Copernicus EMS, UN OCHA), **human post-disaster annotations do not exist**.
+    > Our framework leverages freely available pre-disaster OpenStreetMap (OSM) vector footprints as geometric spatial priors,
+    > then projects the model's cross-attention change saliency into each footprint to compute automated, label-free building damage assessments.
+    """)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        ev = st.selectbox("Select Disaster Event:", events, key="osm_ev")
+    with col2:
+        samples_in_ev = ev_map.get(ev, [])
+        sids = [s["sample_id"] for s in samples_in_ev]
+        sid = st.selectbox("Select Scene ID:", sids, key="osm_sid")
+
+    sample = next((s for s in samples_in_ev if s["sample_id"] == sid), None)
+
+    if sample:
+        img_dir = sample["images_dir"]
+        sample_id = sample["sample_id"]
+        pre_img = train_ds._load_stitched_image(img_dir, sample_id, "pre_disaster")
+        post_img = train_ds._load_stitched_image(img_dir, sample_id, "post_disaster")
+        pre_label = sample.get("pre_label")
+        post_label = sample.get("post_label")
+
+        t_pre = prep(pre_img).unsqueeze(0).to(dev)
+        t_post = prep(post_img).unsqueeze(0).to(dev)
+
+        with torch.no_grad():
+            sal_map = m.get_visual_attribution(t_pre, t_post)
+
+        prior_file = pre_label if pre_label else post_label
+        osm_prior = OSMBuildingPrior(prior_file, image_size=post_img.size if post_img else (1024, 1024))
+        ledger_engine = AutomatedDamageLedger(osm_prior)
+        ledger = ledger_engine.assess_damage_from_saliency(sal_map)
+
+        alpha_val = st.slider("Heatmap Blending Opacity", min_value=0.2, max_value=0.8, value=0.48, step=0.02)
+        sal_fused = render_saliency_heatmap_overlay(post_img, sal_map, alpha=alpha_val)
+        grid_img = render_sector_grid(post_img, ledger.get("sector_breakdown"))
+
+        v1, v2 = st.columns(2)
+        with v1:
+            st.image(sal_fused, caption="Visual Attention Attribution Heatmap (Cross-Attention Saliency)", use_container_width=True)
+        with v2:
+            st.image(grid_img, caption="Tactical Quadrant Grid (NW, NE, SW, SE)", use_container_width=True)
+
+        st.markdown("#### Tactical Disaster Damage Ledger")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Pre-Disaster Buildings", f"{ledger['total_structures']}")
+        k2.metric("Severity Score", f"{ledger['disaster_severity_score']} / 10.0")
+        k3.metric("Emergency Priority", f"{ledger['emergency_priority']}")
+        k4.metric("Hotspot Sector", f"{ledger['hotspot_sector_name']}")
+
+        st.markdown("##### Quadrant Structural Breakdown")
+        sec_rows = []
+        for sec_name, stats in ledger["sector_breakdown"].items():
+            sec_rows.append({
+                "Sector Quadrant": sec_name,
+                "Intact Structures": stats["intact"],
+                "Minor Damage": stats["minor"],
+                "Major Damage": stats["major"],
+                "Destroyed": stats["destroyed"],
+                "Total Structures": stats["total"],
+            })
+        df_sec = pd.DataFrame(sec_rows)
+        st.dataframe(df_sec.set_index("Sector Quadrant"), use_container_width=True)
+
+        st.markdown("##### Building-Level Geospatial Extraction")
+        if ledger["buildings"]:
+            bld_records = []
+            for b in ledger["buildings"][:25]:
+                cx, cy = b["centroid"]
+                bld_records.append({
+                    "Building UID": b["id"],
+                    "Tactical Sector": b["sector"],
+                    "Centroid (X, Y)": f"({cx:.1f}, {cy:.1f})",
+                    "Change Saliency Score": b["change_intensity"],
+                    "Inferred Damage State": b["inferred_damage"].upper(),
+                })
+            df_blds = pd.DataFrame(bld_records)
+            st.dataframe(df_blds.set_index("Building UID"), use_container_width=True)
+            if len(ledger["buildings"]) > 25:
+                st.caption(f"Showing first 25 of {len(ledger['buildings'])} total analyzed structures.")
+
+
 elif view.strip() == "Quantitative Evaluation":
     st.markdown('<div class="header-title">Quantitative Evaluation</div>', unsafe_allow_html=True)
   
@@ -317,13 +518,34 @@ elif view.strip() in ["SSAL Loss", "System Architecture & SSAL Loss"]:
     st.markdown('<div class="header-title">Multimodal Architecture & Novel SSAL Loss</div>', unsafe_allow_html=True)
     st.markdown('<div class="header-sub">Mathematical formulation and parameter breakdown</div>', unsafe_allow_html=True)
 
-    st.markdown("#### Structural-Semantic Alignment Loss (SSAL)")
-    st.latex(r"\mathcal{L}_{\text{SSAL}} = \lambda_1 \mathcal{L}_{\text{CE}} + \lambda_2 \mathcal{L}_{\text{structural}} + \lambda_3 \mathcal{L}_{\text{temporal}}")
+    st.markdown("#### Four-Component Composite Loss (SSAL + CTAL)")
+    st.latex(
+        r"\mathcal{L}_{\text{total}} = \lambda_1 \mathcal{L}_{\text{CE}}"
+        r"+ \lambda_2 \mathcal{L}_{\text{structural}}"
+        r"+ \lambda_3 \mathcal{L}_{\text{temporal}}"
+        r"+ \lambda_4 \mathcal{L}_{\text{CTAL}}"
+    )
 
     st.markdown("""
-    - **Semantic Cross-Entropy ($\mathcal{L}_{\text{CE}}$)**: Token likelihood with label smoothing ($\epsilon=0.1$) across vocabulary $V=50,257$.
-    - **Structural Damage Consistency ($\mathcal{L}_{\text{structural}}$)**: Kullback-Leibler divergence between predicted damage distribution $\hat{P}_{\text{damage}} \in \mathbb{R}^4$ and ground-truth damage vector $P_{\text{damage}}$.
-    - **Temporal Monotonicity Penalty ($\mathcal{L}_{\text{temporal}}$)**: Directional penalty penalizing inverted damage states ($\max(0, S_{\text{pre}} - S_{\text{post}})^2$).
+    - **Semantic Cross-Entropy** ($\mathcal{L}_{\text{CE}}$, $\lambda_1=1.0$): Token log-likelihood with label smoothing ($\epsilon=0.1$) across GPT-2 vocabulary $V=50,257$.
+    - **Structural Damage Consistency** ($\mathcal{L}_{\text{structural}}$, $\lambda_2=0.3$): Kullback-Leibler divergence between predicted damage distribution $\hat{P}_{\text{damage}} \in \mathbb{R}^4$ and ground-truth damage vector $P_{\text{damage}}$.
+    - **Temporal Monotonicity Penalty** ($\mathcal{L}_{\text{temporal}}$, $\lambda_3=0.2$): Penalizes inverted severity direction ($\max(0, S_{\text{pre}} - S_{\text{post}})^2$); disasters cannot un-damage structures.
+    - **Contrastive Temporal Alignment** ($\mathcal{L}_{\text{CTAL}}$, $\lambda_4=0.15$): InfoNCE contrastive loss on change-detector CLS tokens. Pulls together pairs with similar severity, pushes apart pairs with different severity. Enforces metric ordering in the embedding space across the batch.
+    """)
+
+    st.markdown("---")
+    st.markdown("#### Dual Optimization: AdamW + SAM")
+    st.markdown("""
+    Training uses two optimizers applied every accumulation step:
+
+    1. **AdamW** (base): adaptive moment estimation for fast convergence on LoRA parameters.
+    2. **SAM** (Sharpness-Aware Minimization): two-pass perturbation scheme that finds flat minima
+       in the loss landscape, which generalize better to unseen disaster imagery.
+       - Pass 1: perturb weights $w \\leftarrow w + \\rho \\cdot \\hat{\\nabla} / \\|\\hat{\\nabla}\\|$
+       - Pass 2: compute gradient at perturbed point, step AdamW from original $w$
+
+    Effective gradient update: $\\nabla_w \\mathcal{L}(w + \\epsilon^*)$ where $\\epsilon^*$ is the worst-case perturbation within $\\rho$-ball.
+    This is critical for small-data satellite fine-tuning where sharp overfitting is a risk.
     """)
 
     st.markdown("---")

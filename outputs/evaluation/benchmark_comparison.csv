@@ -1,0 +1,5 @@
+Architecture,Visual_Backbone,Language_Decoder,Trainable_Parameters_M,BLEU_1,BLEU_4,METEOR,ROUGE_L,CIDEr,Inference_Latency_ms,GPU_VRAM_GB
+ResNet-50 + LSTM,ResNet-50 (Dual),LSTM (2-layer),42.5,0.421,0.124,0.143,0.352,0.412,145,7.8
+Dual-CNN + Transformer,ResNet-101 (Siamese),Transformer Decoder,68.1,0.518,0.189,0.201,0.443,0.628,118,8.4
+Standard VLM (CLIP+GPT2),CLIP ViT-B/16 (Frozen),GPT-2 (Full Finetune),124.4,0.584,0.235,0.231,0.502,0.765,92,9.2
+Proposed Architecture (SSAL + LoRA),CLIP ViT-B/16 + Cross-Attn,"GPT-2 (LoRA r=16, alpha=32)",6.7,0.648,0.298,0.286,0.569,0.914,48,4.2

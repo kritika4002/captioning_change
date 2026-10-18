@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import CLIPVisionModel
 
 
@@ -17,10 +18,13 @@ class CrossAttentionBlock(nn.Module):
             nn.Dropout(p_drop),
         )
 
-    def forward(self, q, kv):
-        out, _ = self.attn(query=q, key=kv, value=kv)
+    def forward(self, q, kv, return_weights=False):
+        out, weights = self.attn(query=q, key=kv, value=kv, need_weights=return_weights)
         x = self.norm1(q + out)
-        return self.norm2(x + self.mlp(x))
+        res = self.norm2(x + self.mlp(x))
+        if return_weights:
+            return res, weights
+        return res
 
 
 class VisionChangeEncoder(nn.Module):
@@ -96,6 +100,54 @@ class VisionChangeEncoder(nn.Module):
             "change_cls": cls_token,
             "pred_damage": pred_damage,
         }
+
+    def compute_saliency_heatmap(self, pre_img, post_img):
+        """
+        Computes 2D spatial change visual attention attribution heatmap over the 14x14 patch grid.
+        Returns a normalized 2D numpy array [224, 224] in range [0, 1].
+        """
+        self.eval()
+        with torch.no_grad():
+            f_pre = self.clip_vision(pixel_values=pre_img).last_hidden_state
+            f_post = self.clip_vision(pixel_values=post_img).last_hidden_state
+
+            h_pre = self.pre_proj(f_pre)
+            h_post = self.post_proj(f_post)
+
+            diff = self.diff_proj(h_post - h_pre)
+
+            # Exclude CLS token (index 0) to get 196 spatial patch tokens
+            # Calculate difference activation magnitude
+            diff_spatial = diff[:, 1:, :]
+            diff_norm = torch.norm(diff_spatial, p=2, dim=-1)  # shape: (B, 196)
+
+            # Extract cross-attention weights
+            cross = h_post
+            last_attn = None
+            for layer in self.layers:
+                cross, weights = layer(cross, h_pre, return_weights=True)
+                last_attn = weights
+
+            if last_attn is not None:
+                # Saliency of cross-attention from post to pre patches: (B, 196)
+                cross_weights = last_attn[:, 1:, 1:].mean(dim=1)
+                sal = diff_norm * (1.0 + cross_weights)
+            else:
+                sal = diff_norm
+
+            B = sal.shape[0]
+            # Reshape to 14x14 grid
+            sal_grid = sal.view(B, 1, 14, 14)
+
+            # Upsample smoothly to 224x224
+            sal_upsampled = F.interpolate(sal_grid, size=(224, 224), mode="bicubic", align_corners=False)
+            
+            # Min-Max normalization per image
+            s_min = sal_upsampled.amin(dim=(2, 3), keepdim=True)
+            s_max = sal_upsampled.amax(dim=(2, 3), keepdim=True)
+            sal_norm = (sal_upsampled - s_min) / (s_max - s_min + 1e-8)
+
+            return sal_norm.squeeze(0).squeeze(0).cpu().numpy()
 
     def get_num_tokens(self):
         # vit-b/16 on 224x224: (224//16)^2 + 1 = 197 tokens
