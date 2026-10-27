@@ -17,14 +17,18 @@ class StructuralDamageConsistencyLoss(nn.Module):
         )
 
     def forward(self, pred_damage, gt_damage, pred_sev=None, gt_sev=None):
+        pred_damage = pred_damage.float()
+        gt_damage = gt_damage.float()
         gt = gt_damage.clamp(min=1e-8)
         gt = gt / gt.sum(dim=-1, keepdim=True)
         log_pred = F.log_softmax(pred_damage, dim=-1)
         kl_loss = self.kl(log_pred, gt)
 
         if pred_sev is not None and gt_sev is not None:
-            sev_loss = self.mse(pred_sev.squeeze(), gt_sev)
+            sev_loss = self.mse(pred_sev.squeeze().float(), gt_sev.float())
         else:
+            if next(self.severity_projector.parameters()).device != pred_damage.device:
+                self.severity_projector.to(pred_damage.device)
             p_sev = self.severity_projector(pred_damage).squeeze(-1)
             g_sev = self.severity_projector(gt_damage).squeeze(-1)
             sev_loss = self.mse(p_sev, g_sev.detach())
@@ -80,39 +84,36 @@ class ContrastiveTemporalAlignmentLoss(nn.Module):
         gt_sev    : (B,)   — ground-truth severity in [0, 1]
         """
         if cls_tokens.size(0) < 2:
-            # need at least 2 samples to form pairs
             return cls_tokens.sum() * 0.0
 
-        normed = F.normalize(cls_tokens, dim=-1)
-        # similarity matrix: (B, B)
+        # Perform contrastive similarity in float32 to prevent FP16 exp overflow
+        normed = F.normalize(cls_tokens.float(), dim=-1)
         sim = torch.matmul(normed, normed.T) / self.temp
+
+        # Numerical stability: subtract row-wise max
+        sim_no_diag = sim.clone()
+        sim_no_diag.fill_diagonal_(float("-inf"))
+        row_max = sim_no_diag.max(dim=-1, keepdim=True).values
+        row_max = torch.where(torch.isneginf(row_max), torch.zeros_like(row_max), row_max)
+        sim_stable = sim - row_max.detach()
 
         # positive mask: pairs with close severity scores
         sev_diff = (gt_sev.unsqueeze(0) - gt_sev.unsqueeze(1)).abs()
         pos_mask = (sev_diff < self.tau).float()
-        # zero out diagonal (self-pairs)
         pos_mask.fill_diagonal_(0.0)
-        neg_mask = 1.0 - pos_mask
-        neg_mask.fill_diagonal_(0.0)
 
-        # InfoNCE-style: pull positives, push negatives
-        # for each anchor, average log-softmax over its positive set
-        exp_sim = torch.exp(sim)
-        # mask self out of denominator too
+        exp_sim = torch.exp(sim_stable)
         eye = torch.eye(sim.size(0), device=sim.device).bool()
         exp_sim = exp_sim.masked_fill(eye, 0.0)
 
         denom = exp_sim.sum(dim=-1, keepdim=True).clamp(min=1e-8)
-        log_prob = sim - torch.log(denom)
+        log_prob = sim_stable - torch.log(denom)
 
-        # only compute loss for anchors that have at least one positive
+        has_pos = (pos_mask.sum(dim=-1) > 0).float()
         n_pos = pos_mask.sum(dim=-1).clamp(min=1e-8)
         per_anchor_loss = -(log_prob * pos_mask).sum(dim=-1) / n_pos
 
-        # mask anchors with zero positives to avoid NaN gradient
-        has_pos = (pos_mask.sum(dim=-1) > 0).float()
         loss = (per_anchor_loss * has_pos).sum() / has_pos.sum().clamp(min=1.0)
-
         return loss
 
 

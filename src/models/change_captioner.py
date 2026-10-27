@@ -75,7 +75,22 @@ class ChangeCaptioningModel(nn.Module):
             num_tokens=self.vision_encoder.get_num_tokens(),
         )
 
-    def forward(self, pre_img, post_img, caption_ids, attention_mask=None):
+    def forward(
+        self,
+        pre_img=None,
+        post_img=None,
+        caption_ids=None,
+        attention_mask=None,
+        pre_image=None,
+        post_image=None,
+        **kwargs,
+    ):
+        if pre_img is None:
+            pre_img = pre_image
+        if post_img is None:
+            post_img = post_image
+        if pre_img is None or post_img is None:
+            raise ValueError("Both pre_img (or pre_image) and post_img (or post_image) must be provided.")
         vis = self.vision_encoder(pre_img, post_img)
         vis_emb = self.visual_projection(vis["change_features"])
         txt_emb = self.decoder.get_input_embeddings()(caption_ids)
@@ -98,16 +113,23 @@ class ChangeCaptioningModel(nn.Module):
     @torch.no_grad()
     def generate_caption(
         self,
-        pre_img,
-        post_img,
-        tokenizer,
+        pre_img=None,
+        post_img=None,
+        tokenizer=None,
         max_length=128,
         min_length=20,
         temperature=0.7,
         top_k=50,
         top_p=0.9,
         prompt="In this bi-temporal satellite image pair, ",
+        pre_image=None,
+        post_image=None,
+        **kwargs,
     ):
+        if pre_img is None:
+            pre_img = pre_image
+        if post_img is None:
+            post_img = post_image
         self.eval()
         vis = self.vision_encoder(pre_img, post_img)
         pred_damage = vis["pred_damage"].softmax(dim=-1).squeeze(0)
@@ -199,5 +221,9 @@ class ChangeCaptioningModel(nn.Module):
         from peft import PeftModel
         self.decoder = PeftModel.from_pretrained(self.decoder.base_model, adapter_dir)
 
-    def get_visual_attribution(self, pre_img, post_img):
+    def get_visual_attribution(self, pre_img=None, post_img=None, pre_image=None, post_image=None):
+        if pre_img is None:
+            pre_img = pre_image
+        if post_img is None:
+            post_img = post_image
         return self.vision_encoder.compute_saliency_heatmap(pre_img, post_img)

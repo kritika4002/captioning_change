@@ -12,9 +12,14 @@ class ImagePreprocessor:
         self.image_size = image_size
         self.mode = mode
 
+        if isinstance(image_size, (tuple, list)):
+            resize_size = (int(image_size[0]), int(image_size[1]))
+        else:
+            resize_size = (int(image_size), int(image_size))
+
         if mode == "train":
             self.transform = transforms.Compose([
-                transforms.Resize((image_size, image_size)),
+                transforms.Resize(resize_size),
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.RandomVerticalFlip(p=0.3),
                 transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.05),
@@ -24,7 +29,7 @@ class ImagePreprocessor:
             ])
         else:
             self.transform = transforms.Compose([
-                transforms.Resize((image_size, image_size)),
+                transforms.Resize(resize_size),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=mean, std=std),
             ])
@@ -55,5 +60,16 @@ def stitch_tiles(tile_paths, grid=(2, 2)):
 
 
 def find_image_tiles(images_dir, sample_id, phase="post_disaster"):
+    idir = Path(images_dir)
     pattern = f"{sample_id}_{phase}_part*.png"
-    return [str(t) for t in sorted(Path(images_dir).glob(pattern))]
+    tiles = [str(t) for t in sorted(idir.glob(pattern))]
+    if not tiles:
+        direct = idir / f"{sample_id}_{phase}.png"
+        if direct.exists():
+            return [str(direct)]
+        for ext in [".jpg", ".jpeg", ".tif", ".tiff"]:
+            direct_ext = idir / f"{sample_id}_{phase}{ext}"
+            if direct_ext.exists():
+                return [str(direct_ext)]
+    return tiles
+

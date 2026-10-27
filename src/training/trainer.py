@@ -4,7 +4,18 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+try:
+    from torch.amp import GradScaler, autocast
+    def _create_scaler(enabled=True):
+        return GradScaler("cuda", enabled=enabled)
+    def _autocast_context(enabled=True):
+        return autocast("cuda", enabled=enabled)
+except Exception:
+    from torch.cuda.amp import GradScaler, autocast
+    def _create_scaler(enabled=True):
+        return GradScaler(enabled=enabled)
+    def _autocast_context(enabled=True):
+        return autocast(enabled=enabled)
 from transformers import get_scheduler, AutoTokenizer
 
 from src.models.losses import StructuralSemanticAlignmentLoss
@@ -101,7 +112,7 @@ class Trainer:
         )
 
         # AMP scaler — only on pass-1 gradients (SAM pass-2 reuses them)
-        self.scaler = GradScaler(enabled=self.use_fp16)
+        self.scaler = _create_scaler(enabled=self.use_fp16)
         e_cfg = config.get("evaluation", {})
         self.evaluator = CaptionEvaluator(metrics=e_cfg.get("metrics", ["bleu", "meteor", "rouge_l"]))
 
@@ -155,8 +166,8 @@ class Trainer:
         dmg = batch["damage_vector"].to(self.device)
         sev = batch["severity_score"].to(self.device)
 
-        with autocast(enabled=self.use_fp16):
-            out = self.model(pre_image=pre, post_image=post, caption_ids=cap_ids, attention_mask=mask)
+        with _autocast_context(enabled=self.use_fp16):
+            out = self.model(pre_img=pre, post_img=post, caption_ids=cap_ids, attention_mask=mask)
             n_vis = out["logits"].size(1) - cap_ids.size(1)
             vis_pad = torch.full((cap_ids.size(0), n_vis), -100, device=self.device, dtype=cap_ids.dtype)
             lbls = torch.cat([vis_pad, cap_ids], dim=1)
@@ -185,7 +196,12 @@ class Trainer:
             self.scaler.scale(loss1).backward()
 
             if (b_idx + 1) % self.grad_accum_steps == 0:
-                self.scaler.unscale_(self.optimizer)
+                if self.use_fp16:
+                    with torch.no_grad():
+                        inv_scale = 1.0 / max(self.scaler.get_scale(), 1e-8)
+                        for p in self.model.parameters():
+                            if p.grad is not None:
+                                p.grad.mul_(inv_scale)
                 nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 # perturb weights to worst-case neighbor
                 self.optimizer.first_step(zero_grad=True)
@@ -194,11 +210,24 @@ class Trainer:
                 self.model.train()
                 losses2 = self._compute_loss(batch)
                 loss2 = losses2["loss"] / self.grad_accum_steps
-                # don't scale pass-2 (SAM needs raw grads for second_step)
-                loss2.backward()
-                nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-                # revert perturbation and apply base AdamW step
-                self.optimizer.second_step(zero_grad=True)
+                if self.use_fp16:
+                    self.scaler.scale(loss2).backward()
+                    self.scaler.unscale_(self.optimizer.base_optimizer)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    # revert perturbation and apply base AdamW step through scaler
+                    with torch.no_grad():
+                        for group in self.optimizer.param_groups:
+                            for p in group["params"]:
+                                if p.grad is not None and p in self.optimizer.state and "e_w" in self.optimizer.state[p]:
+                                    p.sub_(self.optimizer.state[p]["e_w"])
+                    self.scaler.step(self.optimizer.base_optimizer)
+                    self.scaler.update()
+                    self.optimizer.zero_grad()
+                else:
+                    loss2.backward()
+                    nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    self.optimizer.second_step(zero_grad=True)
+
                 self.scheduler.step()
                 self.global_step += 1
 
@@ -223,7 +252,7 @@ class Trainer:
             dmg = batch["damage_vector"].to(self.device)
             sev = batch["severity_score"].to(self.device)
 
-            out = self.model(pre_image=pre, post_image=post, caption_ids=cap_ids, attention_mask=mask)
+            out = self.model(pre_img=pre, post_img=post, caption_ids=cap_ids, attention_mask=mask)
             n_vis = out["logits"].size(1) - cap_ids.size(1)
             vis_pad = torch.full((cap_ids.size(0), n_vis), -100, device=self.device, dtype=cap_ids.dtype)
             lbls = torch.cat([vis_pad, cap_ids], dim=1)
