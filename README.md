@@ -117,13 +117,19 @@ captioning_change/
 │   ├── train.py                  # CLI training entrypoint
 │   ├── demo_inference.py         # 4-panel visual report card generator
 │   └── generate_plots_and_sheets.py # Excel sheets and metric progression charts
-├── outputs/
-│   ├── paper/
-│   │   └── research_paper.tex    # Full 6-page IEEEtran paper for Overleaf
-│   └── predictions/              # Generated 4-panel visual assessment cards
+├── docs/                         # Project reports, thesis, defense guide & paper (gitignored)
+│   ├── README.md                 # Index of all academic documentation
+│   ├── THESIS_REPORT.txt         # Comprehensive 107 KB M.Tech thesis & project report
+│   ├── PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt # Master viva defense manual & bug log
+│   ├── VIVA_PANEL_DEFENSE_AND_COUNTERS.txt       # Panel interrogation questions & counters
+│   ├── research_paper.tex        # Full 6-page IEEEtran paper for Overleaf
+│   └── HOW_TO_RUN.md             # Detailed execution guide (archived copy)
+├── outputs/                      # Runtime outputs, plots, benchmarks & evaluation
+│   ├── eda/                      # Exploratory data analysis distributions & plots
+│   ├── evaluation/               # Benchmark comparison CSVs and progression plots
+│   └── predictions/              # Generated visual assessment cards
 ├── app.py                        # Interactive Streamlit Web Demonstration Dashboard
 ├── HOW_TO_RUN.md                 # Detailed step-by-step execution guide
-├── PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt # Master viva defense manual (plain text)
 ├── requirements.txt              # Locked Python dependencies
 ├── .gitignore                    # Optimized ignore rules for ML/PyTorch
 └── README.md                     # Project overview and technical documentation
@@ -201,10 +207,16 @@ Evaluated against competitive bi-temporal change captioning baselines on the xBD
 
 ## 🎓 Academic & Defense Documentation
 
-- **Master Defense Guide (Plain Text)**: [`PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt`](PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt)
+All comprehensive academic deliverables and review materials are organized inside [`docs/`](docs/) (and gitignored for local review):
+
+- **Master Thesis Report**: [`docs/THESIS_REPORT.txt`](docs/THESIS_REPORT.txt)
+  *Complete 107 KB M.Tech thesis / final report detailing motivation, literature survey, dual-optimization architecture (AdamW + SAM), composite loss (SSAL + CTAL), and full benchmark results.*
+- **Master Defense Guide (Plain Text)**: [`docs/PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt`](docs/PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt)
   *Contains deep-learning term definitions, file-by-file explanations, complete bug log & fixes, and 35 tough viva defense questions with bulletproof answers.*
+- **Panel Interrogation & Counters**: [`docs/VIVA_PANEL_DEFENSE_AND_COUNTERS.txt`](docs/VIVA_PANEL_DEFENSE_AND_COUNTERS.txt)
+  *Stage cheatsheet, 2-minute pitch, and prepared counter-responses for panel cross-examination.*
 - **Step-by-Step Execution Guide**: [`HOW_TO_RUN.md`](HOW_TO_RUN.md)
-- **IEEEtran Research Paper**: [`outputs/paper/research_paper.tex`](outputs/paper/research_paper.tex) (Formatted 6-page paper with 20 citations ready for Overleaf).
+- **IEEEtran Research Paper**: [`docs/research_paper.tex`](docs/research_paper.tex) (Formatted 6-page paper with 20 citations ready for Overleaf).
 
 ---
 

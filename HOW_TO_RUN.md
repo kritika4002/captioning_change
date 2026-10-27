@@ -160,10 +160,11 @@ C:\project-major\tf_gpu_env\Scripts\python.exe -m streamlit run app.py
 **Accessing the Application:**
 - Open your web browser at: `http://localhost:8501`
 - Available navigation views:
-  1. **Live Change Captioning**: Select any disaster event (e.g., Guatemala Volcano, Hurricane Matthew, Midwest Flooding, Santa Rosa Wildfire) and scene ID, view aligned pre- and post-disaster satellite imagery, trigger one-click GPU inference, inspect generated captions alongside ground truth, and view real-time structural damage bar charts.
-  2. **Quantitative Evaluation**: Interactive high-resolution plots for loss convergence, metric progression, baseline benchmark comparisons, and a direct download button for `evaluation_results.xlsx`.
-  3. **Study**: Systematic ablation study table and damage state accuracy comparison validating the contributions of Cross-Attention, SSAL Loss, and LoRA PEFT.
-  4. **SSAL Loss**: Mathematical breakdown of the novel Structural-Semantic Alignment Loss formulation, loss weights, and module-by-module parameter allocation table.
+  1. **Live Change Captioning**: Select any disaster event (e.g., Guatemala Volcano, Hurricane Florence, Midwest Flooding, Santa Rosa Wildfire) and scene ID, view aligned pre- and post-disaster satellite imagery, trigger one-click GPU inference, inspect generated captions alongside ground truth, view real-time structural damage bar charts, inspect color-coded building polygon outlines, and inspect cross-attention saliency attribution heatmaps.
+  2. **Tactical Ledger & OSM Priors**: Operational emergency management view demonstrating label-free building damage triage. Leverages pre-disaster OpenStreetMap (OSM) vector footprint priors, partitions scenes into tactical quadrants (NW, NE, SW, SE), samples cross-attention change saliency, and generates a structured disaster dispatch ledger with triage ratings and building-level centroid coordinates.
+  3. **Quantitative Evaluation**: Interactive high-resolution plots for loss convergence, metric progression, baseline benchmark comparisons, and a direct download button for `evaluation_results.xlsx`.
+  4. **Study**: Systematic ablation study table and damage state accuracy comparison validating the contributions of Cross-Attention, SSAL Loss, and LoRA PEFT.
+  5. **SSAL Loss**: Mathematical breakdown of the 4-component Structural-Semantic Alignment Loss formulation (CE + Structural + Temporal + CTAL), SAM dual-optimization perturbation scheme, and module-by-module parameter allocation table.
 
 ---
 
@@ -181,10 +182,13 @@ C:\project-major\tf_gpu_env\Scripts\python.exe -m streamlit run app.py
 | `loss.lambda_ce` | Loss | `1.0` | Weight for Cross-Entropy loss |
 | `loss.lambda_structural` | Loss | `0.3` | Weight for Structural KL divergence loss |
 | `loss.lambda_temporal` | Loss | `0.2` | Weight for Temporal monotonicity penalty |
+| `loss.lambda_contrastive` | Loss | `0.15` | Weight for Contrastive Temporal Alignment Loss (CTAL) |
+| `training.sam_rho` | Training | `0.05` | Perturbation radius for SAM (Sharpness-Aware Minimization) |
+| `training.sam_adaptive` | Training | `false` | Enable adaptive parameter-scaled perturbation (ASAM) |
 | `training.epochs` | Training | `5` | Number of training epochs |
 | `training.batch_size` | Training | `8` | Batch size per GPU step |
 | `training.gradient_accumulation_steps` | Training | `4` | Gradient accumulation steps (effective batch size: 32) |
-| `training.learning_rate` | Training | `2.0e-4` | Peak learning rate for AdamW optimizer |
+| `training.learning_rate` | Training | `2.0e-4` | Peak learning rate for base optimizer |
 | `training.fp16` | Training | `true` | Enables Automatic Mixed Precision |
 
 ---
@@ -194,16 +198,16 @@ C:\project-major\tf_gpu_env\Scripts\python.exe -m streamlit run app.py
 The repository includes ready-to-present documentation and research materials:
 
 1. **LaTeX Research Paper**:
-   - Location: `outputs/paper/research_paper.tex`
+   - Location: `docs/research_paper.tex`
    - Format: Complete 6-page IEEEtran camera-ready paper for Overleaf with 20 real research paper citations, mathematical formulations, benchmark tables, and ablation analysis.
 
 2. **Viva Defense and Code Walkthrough**:
-   - Location: `outputs/paper/VIVA_PANEL_DEFENSE_AND_COUNTERS.txt`
-   - Format: Comprehensive plain-English manual containing line-by-line explanations of every Python file in `src/` and `scripts/`, a complete dictionary of all deep learning terms, and prepared counter-responses for panel cross-examination.
+   - Location: `docs/VIVA_PANEL_DEFENSE_AND_COUNTERS.txt` and `docs/PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt`
+   - Format: Comprehensive plain-English manuals containing file-by-file explanations of every Python file in `src/` and `scripts/`, a complete dictionary of all deep learning terms, complete bug log, and prepared counter-responses for panel cross-examination.
 
-3. **Review Presentation Deck**:
-   - Location: `outputs/Disaster_Change_Captioning_Review_Presentation.pptx`
-   - Format: 14-slide widescreen presentation deck covering all 14 mandatory project review points.
+3. **Master Thesis Report**:
+   - Location: `docs/THESIS_REPORT.txt`
+   - Format: Complete 107 KB M.Tech thesis / final report detailing motivation, related work, dual-optimization architecture (AdamW + SAM), composite loss (SSAL + CTAL), and full benchmark results.
 
 4. **Evaluation Spreadsheet**:
    - Location: `outputs/evaluation/evaluation_results.xlsx`

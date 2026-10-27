@@ -1,4 +1,35 @@
+# ==============================================================================
+# Git Ignore Configuration: Automated Disaster Change Captioning (VLM)
+# ==============================================================================
 
+# ---------- Documentation, Theses & Presentation Artifacts ----------
+docs/
+THESIS_REPORT.txt
+PROJECT_EXPLANATION_AND_DEFENSE_GUIDE.txt
+VIVA_PANEL_DEFENSE_AND_COUNTERS.txt
+*.report
+*.doc
+*.docx
+*.pptx
+*.ppt
+*.pdf
+# Plain text files (excluding critical project files like requirements.txt)
+*.txt
+!requirements.txt
+
+# ---------- LaTeX Build Artifacts ----------
+*.aux
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.out
+*.nav
+*.snm
+*.vrb
+*.dvi
 
 # ---------- Python Runtime & Bytecode ----------
 __pycache__/
@@ -10,6 +41,9 @@ __pycache__/
 dist/
 build/
 .eggs/
+pip-wheel-metadata/
+*.manifest
+*.spec
 
 # ---------- Virtual Environments & Package Managers ----------
 tf_gpu_env/
@@ -29,12 +63,19 @@ venv.bak/
 .project
 .pydevproject
 .settings/
+*.sublime-project
+*.sublime-workspace
 
-# ---------- Jupyter Notebooks ----------
+# ---------- Jupyter Notebooks & Testing Caches ----------
 .ipynb_checkpoints/
 *.ipynb_meta
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# ---------- PyTorch & Model Checkpoints ----------
+# ---------- PyTorch, Weights & Model Checkpoints ----------
 checkpoints/
 *.pt
 *.pth
@@ -55,6 +96,9 @@ data/processed/
 *.tar.gz
 *.zip
 *.7z
+*.rar
+*.tar
+*.gz
 
 # ---------- Intermediate Captions Cache ----------
 data/captions/*.json
@@ -65,14 +109,17 @@ outputs/checkpoints/
 outputs/evaluation/*.xlsx
 outputs/predictions/*.png
 !outputs/predictions/.gitkeep
-!outputs/paper/
 
-# ---------- Scratch & Testing Dirs ----------
+# ---------- Scratch, Temporary & Cache Directories ----------
 scratch/
+temp/
+tmp/
 .tempmediaStorage/
 .user_uploaded/
 .system_generated/
 *.tmp
+*.temp
+*.bak
 
 # ---------- Hugging Face & Streamlit Caches ----------
 .cache/
@@ -82,9 +129,19 @@ scratch/
 # ---------- Operating System Specific ----------
 .DS_Store
 Thumbs.db
+ehthumbs.db
 desktop.ini
 $RECYCLE.BIN/
 
-# ---------- Experiment Tracking ----------
+# ---------- Experiment Tracking & Telemetry ----------
 wandb/
 mlruns/
+
+# ---------- Secrets & Environment Configurations ----------
+.env
+.env.*
+*.key
+*.pem
+*.cert
+credentials.json
+client_secret*.json
