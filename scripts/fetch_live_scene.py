@@ -1,21 +1,3 @@
-"""
-Live Scene Fetcher -- Copernicus EMS Sentinel-2 + OSM Overpass
-=============================================================
-Fetches real bi-temporal satellite image pairs and live OSM building
-footprints for any (lat, lon) disaster location.
-
-Usage:
-    python scripts/fetch_live_scene.py \
-        --lat 37.08 --lon 37.38 \
-        --event "turkey_earthquake_2023" \
-        --pre-date 2023-02-01 \
-        --post-date 2023-02-15 \
-        --out-dir dataset/live_scenes
-
-Credentials are loaded from the .env file or environment variables:
-    COPERNICUS_CLIENT_ID
-    COPERNICUS_CLIENT_SECRET
-"""
 
 import os
 import json
